@@ -1,83 +1,64 @@
 # HAMON
 
-Passive optical sequence mixing for long-horizon time-series forecasting.
+HAMON is a passive optical sequence-mixing model for long-horizon time-series forecasting.
 
-HAMON maps a time-series history onto an optical aperture, leaves future positions dark, and uses trainable phase masks plus free-space propagation to produce the forecast field. The optical core is the sequence-mixing operator; the digital parts are only the boundary operations such as normalization, encoding, readout calibration, and training.
+The model encodes a time-series history onto an optical aperture, leaves future positions dark, and uses trainable phase masks with free-space propagation to produce the forecast field. The forecasting core is the optical propagation operator. Digital computation is used only at the boundary for normalization, input encoding, readout calibration, denormalization, and training.
 
-## What to change
+## Main idea
 
-Most experiments are controlled by a few flags.
+HAMON treats forecasting as learned diffraction.
 
-### 1. Choose input encoding
+Observed history is written into an input field. The future region starts dark. A stack of trainable phase masks shapes the propagated optical field so that the forecast appears in the future region.
 
-Use amplitude encoding:
+The model does not use a digital temporal forecasting head after the optical core.
+
+## Model options
+
+HAMON has two input encodings.
+
+Amplitude encoding:
 
     ENCODING_MODE = "amplitude"
 
-or phase encoding:
+The normalized history directly sets the input field amplitude.
+
+Phase encoding:
 
     ENCODING_MODE = "phase"
     PHASE_ALPHA = 0.3
 
-Amplitude encoding writes the normalized history directly into the optical field amplitude.
+The normalized history sets the input optical phase while the input magnitude remains approximately fixed.
 
-Phase encoding keeps approximately fixed magnitude and writes the normalized history into optical phase.
-
-### 2. Choose readout
+HAMON has three readout modes.
 
 Coherent readout:
 
     READOUT_MODE = "coherent"
 
+Reads the real field quadrature in the forecast region.
+
 Intensity readout:
 
     READOUT_MODE = "intensity"
+
+Reads detector intensity, |U|^2.
 
 Differential intensity readout:
 
     READOUT_MODE = "differential_intensity"
 
-Coherent readout reads the real field quadrature.
-
-Intensity readout reads detector intensity, |U|^2.
-
-Differential intensity readout uses two forecast regions and subtracts their intensities, giving a signed output with intensity detectors.
-
-### 3. Choose number of optical layers
-
-For the main runs:
-
-    LAYER_CANDIDATES = [16]
-
-For lightweight interface ablations:
-
-    LAYER_CANDIDATES = [4]
-
-The number of layers is the number of trainable optical phase masks.
-
-### 4. Choose datasets and horizons
-
-Main no-Electricity/Traffic run:
-
-    datasets=["etth1", "etth2", "ettm1", "ettm2", "weather"]
-    pred_lens=[96, 192, 336, 720]
-    seeds=[1, 2, 3]
-
-Large datasets can be run separately:
-
-    datasets=["electricity"]
-    datasets=["traffic"]
+Uses two forecast regions and subtracts their detected intensities. This gives a signed output using intensity-compatible detection.
 
 ## Common configurations
 
-Amplitude/coherent baseline:
+Amplitude/coherent HAMON:
 
     ENCODING_MODE = "amplitude"
     READOUT_MODE = "coherent"
     USE_BACKCAST_LOSS = True
     USE_INTENSITY_AFFINE = False
 
-Phase/coherent:
+Phase/coherent HAMON:
 
     ENCODING_MODE = "phase"
     READOUT_MODE = "coherent"
@@ -85,7 +66,7 @@ Phase/coherent:
     USE_BACKCAST_LOSS = True
     USE_INTENSITY_AFFINE = False
 
-Phase/intensity:
+Phase/intensity HAMON:
 
     ENCODING_MODE = "phase"
     READOUT_MODE = "intensity"
@@ -93,7 +74,7 @@ Phase/intensity:
     USE_BACKCAST_LOSS = False
     USE_INTENSITY_AFFINE = True
 
-Phase/differential-intensity:
+Phase/differential-intensity HAMON:
 
     ENCODING_MODE = "phase"
     READOUT_MODE = "differential_intensity"
@@ -101,37 +82,21 @@ Phase/differential-intensity:
     USE_BACKCAST_LOSS = False
     USE_INTENSITY_AFFINE = True
 
-## Recommended corrected run
+## Optical depth
 
-Use a fresh output folder:
+The main experiments use 16 trainable phase-mask layers.
 
-    BASE_DIR = "/content/drive/MyDrive/HAMON_Ultimate_Fixed"
-
-Use a clear tag:
-
-    EXPERIMENT_TAG = make_experiment_tag() + "__no_elec_traffic_Hsel_L16_s123_80_epochs"
-
-Current corrected protocol:
-
-    SEQ_LEN = 336
-    EPOCHS = 80
-    PATIENCE = 15
     LAYER_CANDIDATES = [16]
-    SEEDS = [1, 2, 3]
 
-Run sanity check first:
+Some interface ablations use 4 layers.
 
-    RUN_SANITY_CHECK = True
+    LAYER_CANDIDATES = [4]
 
-Then run full benchmark:
+## Errata and reproduction status
 
-    RUN_SANITY_CHECK = False
+After the first arXiv release, we found a validation/test windowing mismatch relative to Time-Series-Library.
 
-## Errata / reproduction status
-
-The first arXiv version used a validation/test windowing convention that was slightly different from Time-Series-Library.
-
-The original split used correct chronological train/validation/test lengths and fit the scaler only on training data, but validation and test were sliced as isolated segments. This omitted the first SEQ_LEN forecast origins from validation and test evaluation.
+The original code used the correct chronological train/validation/test split lengths and fit the scaler only on the training split. However, validation and test arrays were sliced as isolated segments. This omitted the first SEQ_LEN forecast origins from validation and test evaluation.
 
 Original slicing:
 
@@ -145,12 +110,12 @@ Corrected Time-Series-Library-compatible slicing:
     val = data[train_len - SEQ_LEN : train_len + val_len]
     test = data[train_len + val_len - SEQ_LEN : train_len + val_len + test_len]
 
-This is not data leakage. The added context points are only past observations used as input history. Prediction targets remain inside validation/test, and the scaler is still fit only on training data.
+This is not train/test leakage. The added context consists only of past observations used as input history. Prediction targets remain inside the validation/test regions, and the scaler is still fit only on the training split.
 
-The optical model and scientific mechanism are unchanged. The correction affects benchmark windowing/comparability, not the HAMON architecture.
+The HAMON architecture and scientific mechanism are unchanged. The correction affects benchmark windowing and exact reported numbers, not the optical sequence-mixing core.
 
-Corrected HAMON reruns are in progress. Early corrected runs are broadly consistent with the original conclusions, and some horizons improve, but final corrected tables will be released in arXiv v2 after the reruns finish.
+Corrected HAMON runs are in progress. Early corrected results are broadly consistent with the original conclusions, and some horizons improve, but final corrected tables will be released with arXiv v2.
 
 We are also reproducing FITS inside the same pipeline as an additional sanity check.
 
-Until v2 is posted, please treat the initial arXiv tables as preliminary and use the corrected repository results when available.
+Until arXiv v2 is posted, please treat the first-version tables as preliminary and use the corrected repository results when available.
